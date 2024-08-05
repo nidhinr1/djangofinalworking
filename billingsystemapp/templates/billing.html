@@ -175,51 +175,28 @@
                 </div>
             </form>
         </div>
-        <h2>Select Customer</h2>
-        <div class="form-container">
-            <form method="post" class="form-inline w-100" id="selectCustomerForm">
-                {% csrf_token %}
-                <div class="input-group w-100">
-                    <input type="text" id="searchCustomer" class="form-control" placeholder="Search and select customer">
-                    <select name="customer_id" id="customerSelect" class="form-control" required>
-                        <option value="">Select Customer</option>
-                        {% for customer in customers %}
-                        <option value="{{ customer.id }}">{{ customer.customer_name }}</option>
-                        {% endfor %}
-                    </select>
-                    <div class="input-group-append">
-                        <button type="submit" name="select_customer" class="btn btn-primary">Select Customer</button>
-                    </div>
-                </div>
-            </form>
-        </div>
-        <h2>Select Payment Method</h2>
-        <form method="post" id="paymentMethodForm">
-            {% csrf_token %}
-            <div class="radio-group">
-                <label>
-                    <input type="radio" name="payment_method" value="Credit Card" {% if payment_method == "Credit Card" %}checked{% endif %}>
-                    Credit Card
-                </label>
-                <label>
-                    <input type="radio" name="payment_method" value="Debit Card" {% if payment_method == "Debit Card" %}checked{% endif %}>
-                    Debit Card
-                </label>
-                <label>
-                    <input type="radio" name="payment_method" value="Net Banking" {% if payment_method == "Net Banking" %}checked{% endif %}>
-                    Net Banking
-                </label>
-                <label>
-                    <input type="radio" name="payment_method" value="Cash" {% if payment_method == "Cash" %}checked{% endif %}>
-                    Cash
-                </label>
-            </div>
-            <button type="submit" name="submit_payment" class="btn btn-success mt-3">Submit Payment</button>
-        </form>
-        <br>
-        <p style="color: rgb(138, 45, 45);">{{ msg }}</p>
-
         <h2>Cart</h2>
+        <form method="POST" action="{% url 'billing' %}" id="billingForm">
+            {% csrf_token %}
+            <div>
+                <label for="customer_name">Customer Name:</label>
+                <input type="text" id="customer_name" name="customer_name" required>
+            </div>
+            <div>
+                <label for="payment_method">Payment Method:</label>
+                <select id="payment_method" name="payment_method" required>
+                    <option value="credit_card">Credit Card</option>
+                    <option value="debit_card">Debit Card</option>
+                    <option value="cash">Cash</option>
+                    <option value="upi">Upi</option>
+                </select>
+            </div>
+            <h3>Total Price: <span class="price-label">Rs</span>{{ total_price }}</h3>
+            <div class="form-container">
+                <button type="submit" name="submit_bill" class="btn btn-success">Submit Bill</button>
+                <button type="submit" name="create_new_transaction" class="btn btn-secondary">New Transaction</button>
+            </div>
+        </form>
         <table class="table table-bordered">
             <thead>
             <tr>
@@ -250,16 +227,6 @@
                 {% endfor %}
             </tbody>
         </table> 
-
-        <h3>Total Price: <span class="price-label">Rs</span>{{ total_price }}</h3>
-        <div class="form-container">
-            <form method="post" id="submitBillForm" action="{% url 'billing' %}" style="display: inline;">
-                {% csrf_token %}
-                <button type="submit" name="submit_bill" class="btn btn-success">Submit Bill</button>
-                <br>
-                <button type="submit" name="create_new_transaction" class="btn btn-success">New Transaction</button>
-            </form>
-        </div>
     </div>
 
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
@@ -282,8 +249,6 @@
                     $(this).toggle(text.indexOf(searchValue) > -1);
                 });
             });
-
-            
         });
     </script>
 </body>
