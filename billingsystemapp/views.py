@@ -91,11 +91,14 @@ def addcustomer(request):
     else:
         return render(request, 'addcustomers.html')
 
-def generate_pdf_bill(sale_number, cart, purchasetime, customer_details, company_details, payment_method):
-    response = HttpResponse(content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="bill_{sale_number}.pdf"'
+from .models import Product, Billing
 
-    doc = SimpleDocTemplate(response, pagesize=letter, rightMargin=72, leftMargin=72)
+def round_to_two_decimal_places(value):
+    return round(value, 2)
+
+def generate_pdf_bill(sale_number, cart, purchasetime, customer_name, payment_method):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
     elements = []
 
     styles = getSampleStyleSheet()
@@ -103,38 +106,20 @@ def generate_pdf_bill(sale_number, cart, purchasetime, customer_details, company
     company_title_style = ParagraphStyle(name='CompanyTitle', fontSize=18, alignment=1)
     normal_style = styles['Normal']
 
-    # Add company details
-    company_name = company_details['name']
-    company_address = company_details['address']
-    company_phone = company_details['phone']
-    company_gstin = company_details['gstin']
-    elements.append(Paragraph(company_name, company_title_style))
-    elements.append(Spacer(1, 6))
-    elements.append(Paragraph(f"Address: {company_address}", normal_style))
-    elements.append(Paragraph(f"Phone: {company_phone}", normal_style))
-    elements.append(Paragraph(f"GSTIN: {company_gstin}", normal_style))
+    # Add company name
+    company_name = "Your Company Name"
+    company_title = Paragraph(company_name, company_title_style)
+    elements.append(company_title)
     elements.append(Spacer(1, 12))
 
     # Add main title
-    elements.append(Paragraph("Purchase Bill", title_style))
+    main_title = Paragraph("Purchase Bill", title_style)
+    elements.append(main_title)
     elements.append(Spacer(1, 12))
-    
-    # Add purchase time
+
+    # Add purchase details
     elements.append(Paragraph(f"Purchase Time: {purchasetime.strftime('%Y-%m-%d %H:%M:%S')}", normal_style))
-    elements.append(Spacer(1, 12))
-
-    # Add customer details
-    customer_name = customer_details['name']
-    customer_address = customer_details['address']
-    customer_phone = customer_details['phone']
-    customer_gstin = customer_details['gstin']
     elements.append(Paragraph(f"Customer Name: {customer_name}", normal_style))
-    elements.append(Paragraph(f"Address: {customer_address}", normal_style))
-    elements.append(Paragraph(f"Phone: {customer_phone}", normal_style))
-    elements.append(Paragraph(f"GSTIN: {customer_gstin}", normal_style))
-    elements.append(Spacer(1, 12))
-
-    # Add payment method
     elements.append(Paragraph(f"Payment Method: {payment_method}", normal_style))
     elements.append(Spacer(1, 12))
 
@@ -154,13 +139,13 @@ def generate_pdf_bill(sale_number, cart, purchasetime, customer_details, company
 
     table = Table(data, colWidths=[1.5 * inch, 1.0 * inch, 1.5 * inch, 1.5 * inch, 1.5 * inch])
 
-    table.setStyle(TableStyle([
+    table.setStyle([
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('TOPPADDING', (0, 0), (-1, -1), 12),  # Increase height of each row
+        ('TOPPADDING', (0, 0), (-1, -1), 12),
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
-    ]))
+    ])
     elements.append(table)
 
     # Add thank you message
@@ -169,11 +154,13 @@ def generate_pdf_bill(sale_number, cart, purchasetime, customer_details, company
     elements.append(thank_you_message)
 
     doc.build(elements)
-
+    buffer.seek(0)
+    response = HttpResponse(buffer, content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="bill_{sale_number}.pdf"'
     return response
+
 def billing(request):
     products = Product.objects.all()
-    customers = Customer.objects.all()
     search_query = request.GET.get('search', '')
 
     if search_query:
@@ -183,7 +170,18 @@ def billing(request):
         cart = request.session.get('cart', {})
         sale_number = request.session.get('sale_number', None)
         customer_id = request.session.get('customer_id', None)
-        payment_method = request.POST.get('payment_method', None)
+        payment_method = request.POST.get('payment_method', 'Not Specified')
+
+        if 'new_transaction' in request.POST:
+            request.session['cart'] = {}
+            request.session['sale_number'] = None
+            request.session['customer_id'] = None
+            return render(request, 'billing.html', {
+                'products': products,
+                'cart': {},
+                'total_price': 0,
+                'search_query': search_query
+            })
 
         if sale_number is None:
             sale_number = str(uuid.uuid4())
@@ -193,36 +191,34 @@ def billing(request):
             product_id = request.POST.get('product_id')
             quantity = request.POST.get('quantity')
             product = get_object_or_404(Product, pk=product_id)
-
+            
             if product.quantity == 0:
                 return render(request, 'billing.html', {
                     'msg': f'{product.product_name} is out of stock.',
                     'products': products,
-                    'customers': customers,
                     'cart': cart,
                     'total_price': round_to_two_decimal_places(sum(item['discounted_price'] * item['quantity'] for item in cart.values())),
                     'search_query': search_query
                 })
-
+            
             try:
                 quantity = int(quantity)
                 if product_id in cart:
                     new_quantity = cart[product_id]['quantity'] + quantity
                 else:
                     new_quantity = quantity
-
+                
                 if new_quantity > product.quantity:
                     return render(request, 'billing.html', {
                         'msg': f'Quantity requested for {product.product_name} exceeds stock available ({product.quantity}).',
                         'products': products,
-                        'customers': customers,
                         'cart': cart,
                         'total_price': round_to_two_decimal_places(sum(item['discounted_price'] * item['quantity'] for item in cart.values())),
                         'search_query': search_query
                     })
 
                 discounted_price = round_to_two_decimal_places(float(product.price) * (1 - (float(product.discount) / 100)))
-
+                
                 if product_id in cart:
                     cart[product_id]['quantity'] += quantity
                 else:
@@ -242,12 +238,8 @@ def billing(request):
                 del cart[product_id]
             request.session['cart'] = cart
 
-        if 'select_customer' in request.POST:
-            customer_id = request.POST.get('customer_id')
-            request.session['customer_id'] = customer_id
-
         if 'submit_bill' in request.POST:
-            if cart and customer_id and payment_method:
+            if cart:
                 purchasetime = datetime.now()
                 try:
                     for product_id, item in cart.items():
@@ -256,7 +248,6 @@ def billing(request):
                             error_message = f"Quantity for {product.product_name} exceeds available stock ({product.quantity})."
                             return render(request, 'billing.html', {
                                 'products': products,
-                                'customers': customers,
                                 'cart': cart,
                                 'total_price': round_to_two_decimal_places(sum(item['discounted_price'] * item['quantity'] for item in cart.values())),
                                 'search_query': search_query,
@@ -273,21 +264,13 @@ def billing(request):
                         product.quantity -= item['quantity']
                         product.save()
 
-                    customer = get_object_or_404(Customer, pk=customer_id)
-                    company_details = {
-                        'name': 'Your Company Name',
-                        'address': 'Your Company Address',
-                        'phone': 'Your Company Phone',
-                        'gstin': 'Your Company GSTIN'
-                    }
-                    customer_details = {
-                        'name': customer.name,
-                        'address': customer.address,
-                        'phone': customer.phone,
-                        'gstin': customer.gstin
-                    }
+                    customer_name = "Not Specified"
+                    if customer_id:
+                        customer = get_object_or_404(Customer, pk=customer_id)
+                        customer_name = customer.name
 
-                    response = generate_pdf_bill(sale_number, cart, purchasetime, customer_details, company_details, payment_method)
+                    # Generate PDF bill
+                    response = generate_pdf_bill(sale_number, cart, purchasetime, customer_name, payment_method)
                     request.session['cart'] = {}  
                     request.session['sale_number'] = None
                     request.session['customer_id'] = None
@@ -296,7 +279,6 @@ def billing(request):
                     error_message = "You cannot add the same product twice in the same bill."
                     return render(request, 'billing.html', {
                         'products': products,
-                        'customers': customers,
                         'cart': cart,
                         'total_price': round_to_two_decimal_places(sum(item['discounted_price'] * item['quantity'] for item in cart.values())),
                         'search_query': search_query,
@@ -308,15 +290,10 @@ def billing(request):
 
     return render(request, 'billing.html', {
         'products': products,
-        'customers': customers,
         'cart': cart,
         'total_price': total_price,
         'search_query': search_query
     })
-
-def round_to_two_decimal_places(value):
-    """Rounds a decimal value to two decimal places."""
-    return round(value, 2)
 
 def product_list(request):
     now = timezone.now().date()
